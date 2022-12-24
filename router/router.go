@@ -10,5 +10,6 @@ func Register(router *gin.Engine, h *Handlers) {
 	{
 		expenses.POST("/", h.Expense.Create)
 		expenses.GET("/:id", h.Expense.Get)
+		expenses.PUT("/:id", h.Expense.Update)
 	}
 }

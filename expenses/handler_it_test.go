@@ -265,3 +265,158 @@ func TestITGET(t *testing.T) {
 		}
 	})
 }
+
+func TestITSave(t *testing.T) {
+	endpoint, cleanup, err := setup()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cleanup()
+
+	t.Run("Should return 200 when update expense successfully", func(t *testing.T) {
+		req, err := http.NewRequest("POST", endpoint, strings.NewReader(`{"title":"test expense","amount":100,"note":"test note","tags":["tag1","tag2"]}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Add("Content-Type", "application/json")
+		req.Header.Add("Authorization", "January 2, 2006")
+
+		client := http.Client{}
+		if _, err = client.Do(req); err != nil {
+			t.Fatal(err)
+		}
+
+		req, err = http.NewRequest("PUT", endpoint+"/1", strings.NewReader(`{"id":1,"title":"test expense update","amount":200,"note":"test note update","tags":["tag1","tag2"]}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Add("Content-Type", "application/json")
+		req.Header.Add("Authorization", "January 2, 2006")
+
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if status := resp.StatusCode; status != http.StatusOK {
+			t.Errorf("unexpected status code: got %v want %v", status, http.StatusOK)
+		}
+
+		byteBody, err := io.ReadAll(resp.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+
+		var createdExpense expenses.Expense
+		if err := json.Unmarshal(byteBody, &createdExpense); err != nil {
+			t.Fatal(err)
+		}
+
+		want := expenses.Expense{
+			ID:     1,
+			Title:  "test expense update",
+			Amount: 200,
+			Note:   "test note update",
+			Tags:   pq.StringArray([]string{"tag1", "tag2"}),
+		}
+
+		if !reflect.DeepEqual(createdExpense, want) {
+			t.Errorf("unexpected expense created: got %v want %v", createdExpense, want)
+		}
+	})
+
+	t.Run("Should return 401 when update expense without token", func(t *testing.T) {
+		req, err := http.NewRequest("PUT", endpoint+"/1", strings.NewReader(`{"id":1,"title":"test expense update","amount":200,"note":"test note update","tags":["tag1","tag2"]}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Add("Content-Type", "application/json")
+
+		client := http.Client{}
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if status := resp.StatusCode; status != http.StatusUnauthorized {
+			t.Errorf("unexpected status code: got %v want %v", status, http.StatusUnauthorized)
+		}
+	})
+
+	t.Run("Should return 401 when update expense with invalid token", func(t *testing.T) {
+		req, err := http.NewRequest("PUT", endpoint+"/1", strings.NewReader(`{"id":1,"title":"test expense update","amount":200,"note":"test note update","tags":["tag1","tag2"]}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Add("Content-Type", "application/json")
+		req.Header.Add("Authorization", "invalid token")
+
+		client := http.Client{}
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if status := resp.StatusCode; status != http.StatusUnauthorized {
+			t.Errorf("unexpected status code: got %v want %v", status, http.StatusUnauthorized)
+		}
+	})
+
+	t.Run("Should return 400 when update expense with invalid body", func(t *testing.T) {
+		req, err := http.NewRequest("PUT", endpoint+"/1", strings.NewReader(`{"id":1,"title":"test expense update","amount":200,"note":"test note update","tags":["tag1","tag2"]`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Add("Content-Type", "application/json")
+		req.Header.Add("Authorization", "January 2, 2006")
+
+		client := http.Client{}
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if status := resp.StatusCode; status != http.StatusBadRequest {
+			t.Errorf("unexpected status code: got %v want %v", status, http.StatusBadRequest)
+		}
+	})
+
+	t.Run("Should return 400 when update expense with invalid id", func(t *testing.T) {
+		req, err := http.NewRequest("PUT", endpoint+"/asdsad", strings.NewReader(`{"id":1,"title":"test expense update","amount":200,"note":"test note update","tags":["tag1","tag2"]`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Add("Content-Type", "application/json")
+		req.Header.Add("Authorization", "January 2, 2006")
+
+		client := http.Client{}
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if status := resp.StatusCode; status != http.StatusBadRequest {
+			t.Errorf("unexpected status code: got %v want %v", status, http.StatusBadRequest)
+		}
+	})
+
+	t.Run("Should return 404 when update expense with not found id", func(t *testing.T) {
+		req, err := http.NewRequest("PUT", endpoint+"/999", strings.NewReader(`{"id":999,"title":"test expense update","amount":200,"note":"test note update","tags":["tag1","tag2"]}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Add("Content-Type", "application/json")
+		req.Header.Add("Authorization", "January 2, 2006")
+
+		client := http.Client{}
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if status := resp.StatusCode; status != http.StatusNotFound {
+			t.Errorf("unexpected status code: got %v want %v", status, http.StatusNotFound)
+		}
+	})
+}
