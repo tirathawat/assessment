@@ -15,18 +15,22 @@ import (
 var (
 	ErrCreateFailed = errors.New("failed to create expense")
 	ErrInvalidID    = errors.New("invalid id")
+	ErrIDMismatch   = errors.New("id mismatch")
 	ErrNotFound     = errors.New("expense not found")
 	ErrGetFailed    = errors.New("failed to get expense")
+	ErrUpdateFailed = errors.New("failed to update expense")
 )
 
 type Handler interface {
 	Create(c *gin.Context)
 	Get(c *gin.Context)
+	Update(c *gin.Context)
 }
 
 type DB interface {
 	Create(value interface{}) *gorm.DB
 	First(dest interface{}, conds ...interface{}) *gorm.DB
+	Save(value interface{}) *gorm.DB
 }
 
 type handler struct {
@@ -85,4 +89,48 @@ func (h *handler) Get(c *gin.Context) {
 
 	logs.Error().Err(err).Msgf("failed to get expense: %d", id)
 	c.JSON(http.StatusInternalServerError, errs.Error(ErrGetFailed))
+}
+
+func (h *handler) Update(c *gin.Context) {
+	var body Expense
+	if err := c.ShouldBindJSON(&body); err != nil {
+		logs.Error().Err(err).Msg("failed to bind request body")
+		c.JSON(http.StatusBadRequest, errs.Error(err))
+		return
+	}
+
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		logs.Error().Err(err).Msgf("invalid id: %s", c.Param("id"))
+		c.JSON(http.StatusBadRequest, errs.Error(ErrInvalidID))
+		return
+	}
+
+	if body.ID != id {
+		logs.Error().Err(err).Msgf("id mismatch: %d != %d", id, body.ID)
+		c.JSON(http.StatusBadRequest, errs.Error(ErrIDMismatch))
+		return
+	}
+
+	var expense Expense
+	err = h.db.First(&expense, "id = ?", id).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		logs.Error().Err(err).Msgf("expense not found: %d", id)
+		c.JSON(http.StatusNotFound, errs.Error(ErrNotFound))
+		return
+	}
+
+	if err != nil {
+		logs.Error().Err(err).Msgf("failed to get expense: %d", id)
+		c.JSON(http.StatusInternalServerError, errs.Error(ErrGetFailed))
+		return
+	}
+
+	if err := h.db.Save(&body).Error; err != nil {
+		logs.Error().Err(err).Msgf("failed to update expense: %v", body)
+		c.JSON(http.StatusInternalServerError, errs.Error(ErrUpdateFailed))
+		return
+	}
+
+	c.JSON(http.StatusOK, body)
 }
