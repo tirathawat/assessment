@@ -17,12 +17,26 @@ import (
 )
 
 type MockDB struct {
+	expense       *expenses.Expense
 	methodsToCall map[string]bool
 	db            *gorm.DB
 }
 
 func (m *MockDB) Create(value interface{}) *gorm.DB {
+	if m.expense != nil {
+		reflect.ValueOf(value).Elem().Set(reflect.ValueOf(m.expense).Elem())
+	}
+
 	m.methodsToCall["Create"] = true
+	return m.db
+}
+
+func (m *MockDB) First(dest interface{}, conds ...interface{}) *gorm.DB {
+	if m.expense != nil {
+		reflect.ValueOf(dest).Elem().Set(reflect.ValueOf(m.expense).Elem())
+	}
+
+	m.methodsToCall["First"] = true
 	return m.db
 }
 
@@ -36,8 +50,16 @@ func (m *MockDB) ExpectToCall(methodName string) {
 
 func TestCreate(t *testing.T) {
 	t.Run("Should return 201 when create expense successfully", func(t *testing.T) {
+		want := expenses.Expense{
+			Title:  "test expense",
+			Amount: 100,
+			Note:   "test note",
+			Tags:   pq.StringArray([]string{"tag1", "tag2"}),
+		}
+
 		mockDB := &MockDB{
-			db: &gorm.DB{},
+			expense: &want,
+			db:      &gorm.DB{},
 		}
 
 		mockDB.ExpectToCall("Create")
@@ -72,13 +94,6 @@ func TestCreate(t *testing.T) {
 		var createdExpense expenses.Expense
 		if err := json.Unmarshal(body, &createdExpense); err != nil {
 			t.Fatal(err)
-		}
-
-		want := expenses.Expense{
-			Title:  "test expense",
-			Amount: 100,
-			Note:   "test note",
-			Tags:   pq.StringArray([]string{"tag1", "tag2"}),
 		}
 
 		if !reflect.DeepEqual(createdExpense, want) {
@@ -139,6 +154,166 @@ func TestCreate(t *testing.T) {
 
 		if !mockDB.methodsToCall["Create"] {
 			t.Errorf("expected Create method to be called on mock DB")
+		}
+	})
+}
+
+func TestGet(t *testing.T) {
+	t.Run("Should return 200 when get expense successfully", func(t *testing.T) {
+		want := expenses.Expense{
+			Title:  "test expense",
+			Amount: 100,
+			Note:   "test note",
+			Tags:   pq.StringArray([]string{"tag1", "tag2"}),
+		}
+
+		mockDB := &MockDB{
+			expense: &want,
+			db:      &gorm.DB{},
+		}
+
+		mockDB.ExpectToCall("First")
+
+		h := expenses.NewHandler(mockDB)
+
+		req, err := http.NewRequest("GET", "/expenses", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		rr := httptest.NewRecorder()
+		ctx, _ := gin.CreateTestContext(rr)
+		ctx.Request = req
+		ctx.Params = []gin.Param{
+			{
+				Key:   "id",
+				Value: "1",
+			},
+		}
+
+		h.Get(ctx)
+
+		if status := rr.Code; status != http.StatusOK {
+			t.Errorf("unexpected status code: got %v want %v", status, http.StatusOK)
+		}
+
+		if !mockDB.methodsToCall["First"] {
+			t.Errorf("expected First method to be called on mock DB")
+		}
+
+		body, err := io.ReadAll(rr.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		var expense expenses.Expense
+		if err := json.Unmarshal(body, &expense); err != nil {
+			t.Fatal(err)
+		}
+
+		if !reflect.DeepEqual(expense, want) {
+			t.Errorf("unexpected expense created: got %v want %v", expense, want)
+		}
+	})
+
+	t.Run("Should return 404 when expense not found", func(t *testing.T) {
+		mockDB := &MockDB{
+			db: &gorm.DB{
+				Error: gorm.ErrRecordNotFound,
+			},
+		}
+
+		mockDB.ExpectToCall("First")
+
+		h := expenses.NewHandler(mockDB)
+
+		req, err := http.NewRequest("GET", "/expenses", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		rr := httptest.NewRecorder()
+		ctx, _ := gin.CreateTestContext(rr)
+		ctx.Request = req
+		ctx.Params = []gin.Param{
+			{
+				Key:   "id",
+				Value: "1",
+			},
+		}
+
+		h.Get(ctx)
+
+		if status := rr.Code; status != http.StatusNotFound {
+			t.Errorf("unexpected status code: got %v want %v", status, http.StatusNotFound)
+		}
+
+		if !mockDB.methodsToCall["First"] {
+			t.Errorf("expected First method to be called on mock DB")
+		}
+	})
+
+	t.Run("Should return 500 when get expense failed", func(t *testing.T) {
+		mockDB := &MockDB{
+			db: &gorm.DB{
+				Error: errors.New("db error"),
+			},
+		}
+
+		mockDB.ExpectToCall("First")
+
+		h := expenses.NewHandler(mockDB)
+
+		req, err := http.NewRequest("GET", "/expenses", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		rr := httptest.NewRecorder()
+		ctx, _ := gin.CreateTestContext(rr)
+		ctx.Request = req
+		ctx.Params = []gin.Param{
+			{
+				Key:   "id",
+				Value: "1",
+			},
+		}
+
+		h.Get(ctx)
+
+		if status := rr.Code; status != http.StatusInternalServerError {
+			t.Errorf("unexpected status code: got %v want %v", status, http.StatusInternalServerError)
+		}
+
+		if !mockDB.methodsToCall["First"] {
+			t.Errorf("expected First method to be called on mock DB")
+		}
+	})
+
+	t.Run("Should return 400 when id is not a number", func(t *testing.T) {
+		mockDB := &MockDB{}
+
+		h := expenses.NewHandler(mockDB)
+
+		req, err := http.NewRequest("GET", "/expenses", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		rr := httptest.NewRecorder()
+		ctx, _ := gin.CreateTestContext(rr)
+		ctx.Request = req
+		ctx.Params = []gin.Param{
+			{
+				Key:   "id",
+				Value: "abc",
+			},
+		}
+
+		h.Get(ctx)
+
+		if status := rr.Code; status != http.StatusBadRequest {
+			t.Errorf("unexpected status code: got %v want %v", status, http.StatusBadRequest)
 		}
 	})
 }

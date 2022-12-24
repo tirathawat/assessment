@@ -3,6 +3,7 @@ package expenses
 import (
 	"errors"
 	"net/http"
+	"strconv"
 
 	"github.com/gin-gonic/gin"
 	"github.com/lib/pq"
@@ -13,14 +14,19 @@ import (
 
 var (
 	ErrCreateFailed = errors.New("failed to create expense")
+	ErrInvalidID    = errors.New("invalid id")
+	ErrNotFound     = errors.New("expense not found")
+	ErrGetFailed    = errors.New("failed to get expense")
 )
 
 type Handler interface {
 	Create(c *gin.Context)
+	Get(c *gin.Context)
 }
 
 type DB interface {
 	Create(value interface{}) *gorm.DB
+	First(dest interface{}, conds ...interface{}) *gorm.DB
 }
 
 type handler struct {
@@ -53,4 +59,30 @@ func (h *handler) Create(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusCreated, expense)
+}
+
+func (h *handler) Get(c *gin.Context) {
+	var expense Expense
+
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		logs.Error().Err(err).Msgf("invalid id: %s", c.Param("id"))
+		c.JSON(http.StatusBadRequest, errs.Error(ErrInvalidID))
+		return
+	}
+
+	err = h.db.First(&expense, "id = ?", id).Error
+	if err == nil {
+		c.JSON(http.StatusOK, expense)
+		return
+	}
+
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		logs.Error().Err(err).Msgf("expense not found: %d", id)
+		c.JSON(http.StatusNotFound, errs.Error(ErrNotFound))
+		return
+	}
+
+	logs.Error().Err(err).Msgf("failed to get expense: %d", id)
+	c.JSON(http.StatusInternalServerError, errs.Error(ErrGetFailed))
 }
