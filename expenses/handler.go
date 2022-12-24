@@ -19,18 +19,21 @@ var (
 	ErrNotFound     = errors.New("expense not found")
 	ErrGetFailed    = errors.New("failed to get expense")
 	ErrUpdateFailed = errors.New("failed to update expense")
+	ErrListFailed   = errors.New("failed to list expenses")
 )
 
 type Handler interface {
 	Create(c *gin.Context)
 	Get(c *gin.Context)
 	Update(c *gin.Context)
+	List(c *gin.Context)
 }
 
 type DB interface {
 	Create(value interface{}) *gorm.DB
 	First(dest interface{}, conds ...interface{}) *gorm.DB
 	Save(value interface{}) *gorm.DB
+	Find(dest interface{}, conds ...interface{}) *gorm.DB
 }
 
 type handler struct {
@@ -133,4 +136,16 @@ func (h *handler) Update(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, body)
+}
+
+func (h *handler) List(c *gin.Context) {
+	var expenses []Expense
+	err := h.db.Find(&expenses).Error
+	if err != nil {
+		logs.Error().Err(err).Msg("failed to list expenses")
+		c.JSON(http.StatusInternalServerError, ErrListFailed)
+		return
+	}
+
+	c.JSON(http.StatusOK, expenses)
 }
