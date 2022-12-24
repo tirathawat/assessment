@@ -8,7 +8,7 @@ RUN go mod download
 
 COPY . .
 
-RUN CGO_ENABLED=0 go test -v
+RUN CGO_ENABLED=0 go test -v --tags=unit ./...
 
 RUN go build -o ./out/server .
 

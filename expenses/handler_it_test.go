@@ -23,19 +23,31 @@ import (
 
 func setup() (endpoint string, cleanup func(), err error) {
 	appConfig := config.NewAppConfig()
-	database, cleanup1, err := db.NewConnection(appConfig)
+	database, dbCleanup, err := db.NewConnection(appConfig)
+	if err != nil {
+		return "", nil, err
+	}
+
 	r := gin.Default()
 	router.Register(r, &router.Handlers{
 		Expense: expenses.NewHandler(database),
 	})
 
+	if err := database.Migrator().DropTable(&expenses.Expense{}); err != nil {
+		return "", dbCleanup, err
+	}
+
+	if err := database.AutoMigrate(&expenses.Expense{}); err != nil {
+		return "", dbCleanup, err
+	}
+
 	server := httptest.NewServer(r)
 	endpoint = fmt.Sprintf("%s/expenses", server.URL)
 
 	return endpoint, func() {
-		cleanup1()
+		dbCleanup()
 		server.Close()
-	}, err
+	}, nil
 }
 
 func TestITCreate(t *testing.T) {
@@ -417,6 +429,67 @@ func TestITSave(t *testing.T) {
 
 		if status := resp.StatusCode; status != http.StatusNotFound {
 			t.Errorf("unexpected status code: got %v want %v", status, http.StatusNotFound)
+		}
+	})
+}
+
+func TestITList(t *testing.T) {
+	endpoint, cleanup, err := setup()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cleanup()
+
+	t.Run("Should return 200 when list expenses", func(t *testing.T) {
+		req, err := http.NewRequest("POST", endpoint, strings.NewReader(`{"title":"test expense","amount":100,"note":"test note","tags":["tag1","tag2"]}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Add("Content-Type", "application/json")
+		req.Header.Add("Authorization", "January 2, 2006")
+
+		client := http.Client{}
+		if _, err = client.Do(req); err != nil {
+			t.Fatal(err)
+		}
+
+		req, err = http.NewRequest("POST", endpoint, strings.NewReader(`{"title":"test expense 2","amount":200,"note":"test note 2","tags":["tag1","tag2"]}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Add("Content-Type", "application/json")
+		req.Header.Add("Authorization", "January 2, 2006")
+		if _, err = client.Do(req); err != nil {
+			t.Fatal(err)
+		}
+
+		req, err = http.NewRequest("GET", endpoint, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Add("Authorization", "January 2, 2006")
+
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if status := resp.StatusCode; status != http.StatusOK {
+			t.Errorf("unexpected status code: got %v want %v", status, http.StatusOK)
+		}
+
+		var actual []expenses.Expense
+		if err := json.NewDecoder(resp.Body).Decode(&actual); err != nil {
+			t.Fatal(err)
+		}
+
+		want := []expenses.Expense{
+			{ID: 1, Title: "test expense", Amount: 100, Note: "test note", Tags: []string{"tag1", "tag2"}},
+			{ID: 2, Title: "test expense 2", Amount: 200, Note: "test note 2", Tags: []string{"tag1", "tag2"}},
+		}
+
+		if !reflect.DeepEqual(actual, want) {
+			t.Errorf("unexpected expenses: got %v want %v", actual, want)
 		}
 	})
 }

@@ -1,3 +1,6 @@
+//go:build unit
+// +build unit
+
 package expenses_test
 
 import (
@@ -50,6 +53,14 @@ func (m *MockDB) Save(value interface{}) *gorm.DB {
 		reflect.ValueOf(value).Elem().Set(reflect.ValueOf(m.expense).Elem())
 	}
 	m.methodsToCall["Save"] = true
+	return m.db[m.call()]
+}
+
+func (m *MockDB) Find(dest interface{}, conds ...interface{}) *gorm.DB {
+	if m.expense != nil {
+		reflect.ValueOf(dest).Elem().Set(reflect.ValueOf(m.expense).Elem())
+	}
+	m.methodsToCall["Find"] = true
 	return m.db[m.call()]
 }
 
@@ -566,6 +577,62 @@ func TestSave(t *testing.T) {
 		}
 
 		h.Update(ctx)
+
+		if status := rr.Code; status != http.StatusInternalServerError {
+			t.Errorf("unexpected status code: got %v want %v", status, http.StatusInternalServerError)
+		}
+
+		mockDB.Verify(t)
+	})
+}
+
+func TestList(t *testing.T) {
+	t.Run("Should return 200", func(t *testing.T) {
+		mockDB := &MockDB{
+			db: []*gorm.DB{{}},
+		}
+
+		mockDB.ExpectToCall("Find")
+
+		h := expenses.NewHandler(mockDB)
+
+		req, err := http.NewRequest("GET", "/expenses", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		rr := httptest.NewRecorder()
+		ctx, _ := gin.CreateTestContext(rr)
+		ctx.Request = req
+
+		h.List(ctx)
+
+		if status := rr.Code; status != http.StatusOK {
+			t.Errorf("unexpected status code: got %v want %v", status, http.StatusOK)
+		}
+
+		mockDB.Verify(t)
+	})
+
+	t.Run("Should return 500 when db error", func(t *testing.T) {
+		mockDB := &MockDB{
+			db: []*gorm.DB{{Error: errors.New("db error")}},
+		}
+
+		mockDB.ExpectToCall("Find")
+
+		h := expenses.NewHandler(mockDB)
+
+		req, err := http.NewRequest("GET", "/expenses", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		rr := httptest.NewRecorder()
+		ctx, _ := gin.CreateTestContext(rr)
+		ctx.Request = req
+
+		h.List(ctx)
 
 		if status := rr.Code; status != http.StatusInternalServerError {
 			t.Errorf("unexpected status code: got %v want %v", status, http.StatusInternalServerError)
